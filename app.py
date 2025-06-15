@@ -8,6 +8,7 @@
 import os, json, time, random, io
 from datetime import datetime, timezone
 from typing import List, Dict, Callable
+from unidecode import unidecode
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -206,19 +207,23 @@ if st.button("Run research 🚀"):
     st.download_button("📄 Download as .txt", txt_buf.getvalue(), file_name="reddit_research_report.txt", mime="text/plain")
 
     # PDF download
+    from unidecode import unidecode
     class PDF(FPDF):
         def header(self):
             self.set_font("Arial", "B", 12)
             self.cell(0, 10, "Reddit Research Report", ln=True, align="C")
-
+        
         def footer(self):
             self.set_y(-15)
             self.set_font("Arial", "I", 8)
             self.cell(0, 10, f"Page {self.page_no()}", align="C")
-
         def chapter_body(self, text):
             self.set_font("Arial", "", 11)
-            self.multi_cell(0, 7, text)
+            try:
+                self.multi_cell(0, 7, unidecode(text))  # ✅ Fixes UnicodeEncodeError
+            except:
+                self.multi_cell(0,7,"Exception")
+
 
     pdf = PDF()
     pdf.add_page()
