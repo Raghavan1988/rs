@@ -2,9 +2,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Streamlit assistant for genre‑based Reddit deep research tailored for
 # screen‑writers and producers.
+# Includes password protection and report download options (.txt and .pdf).
 # ─────────────────────────────────────────────────────────────────────────────
 
-import os, json, time, random
+import os, json, time, random, io
 from datetime import datetime, timezone
 from typing import List, Dict, Callable
 
@@ -12,6 +13,7 @@ import streamlit as st
 from dotenv import load_dotenv
 import openai
 import praw
+from fpdf import FPDF
 
 # ── PASSWORD PROTECTION ─────────────────────────────────────────────────────
 st.set_page_config(page_title="Reddit Research", layout="centered")
@@ -22,7 +24,7 @@ if "authenticated" not in st.session_state:
 if not st.session_state["authenticated"]:
     pwd = st.text_input("Password", type="password")
     if st.button("Submit"):
-        if pwd == "raghavan" or pwd == "Abiriscool123!":
+        if pwd in {"raghavan", "Abiriscool123!"}:
             st.session_state["authenticated"] = True
             st.rerun()
         else:
@@ -105,8 +107,8 @@ def summarise_threads(threads: List[Dict], progress_bar, status_slot, sample_slo
             {
                 "role": "system",
                 "content": (
-                    "You are a research summarizer,  Infer what redditors are saying in the thread. Summarize so that it would be easy for a mid career professional with AI/ML background working at big tech. For each Reddit thread JSON {id:text} return JSON with keys "
-                    "gist (50 words), insight1, insight2, sentiment (positive/neutral/negative)"
+                    "You are a research summarizer. Infer what redditors are saying in the thread. Summarize so that it would be easy for a mid career professional with AI/ML background working at big tech. For each Reddit thread JSON {id:text} return JSON with keys "
+                    "gist (50 words), insight1, insight2, sentiment (positive/neutral/negative)."
                 ),
             },
             {"role": "user", "content": json.dumps(payload)},
@@ -129,12 +131,12 @@ def generate_report(genre: str, threads: List[Dict], questions: List[str], timer
     q_block = "\n".join(f"Q{i+1}. {q}" for i, q in enumerate(questions))
 
     prompt = (
-        "You are an analyst assisting a mid career professional, aAI engineer currently an Engineering manager, honing their craft; advance their career, helping them understand the content from FIRST principles "
+        "You are an analyst assisting a mid career professional, an AI engineer currently an Engineering manager, honing their craft; advancing their career. "
         f"**{genre.title()}** genre. You have mined Reddit audience discussions. "
         "First, give a one‑paragraph snapshot of overall audience sentiment for this genre. "
         "Then, answer each research question in its own subsection (≤2 paragraphs each), call out any FIRST principles that the reader should know "
         "adding citations in [Title](URL) form right after every key evidence point. "
-        "Finish with a bold **list of ACTIONABLE INSIGHTS** lists 3 points as a mid career professional who has to survive in the AI era in Bay area, an Engineering Manager working at Linkedin, AI/ML Engineer who is trying to advance their career ."
+        "Finish with a bold **list of ACTIONABLE INSIGHTS**: 3 points for surviving in the AI era in the Bay Area, especially as a mid-career Engineering Manager at LinkedIn."
     )
 
     msgs = [
@@ -194,5 +196,35 @@ if st.button("Run research 🚀"):
 
     st.markdown("## 📊 Audience‑Driven Report")
     st.markdown(report_md)
+
+    # ── DOWNLOAD OPTIONS ─────────────────────────────────────────────────────
+    st.markdown("## 📥 Download Report")
+
+    # Text download
+    txt_buf = io.StringIO()
+    txt_buf.write(report_md)
+    st.download_button("📄 Download as .txt", txt_buf.getvalue(), file_name="reddit_research_report.txt", mime="text/plain")
+
+    # PDF download
+    class PDF(FPDF):
+        def header(self):
+            self.set_font("Arial", "B", 12)
+            self.cell(0, 10, "Reddit Research Report", ln=True, align="C")
+
+        def footer(self):
+            self.set_y(-15)
+            self.set_font("Arial", "I", 8)
+            self.cell(0, 10, f"Page {self.page_no()}", align="C")
+
+        def chapter_body(self, text):
+            self.set_font("Arial", "", 11)
+            self.multi_cell(0, 7, text)
+
+    pdf = PDF()
+    pdf.add_page()
+    pdf.chapter_body(report_md)
+    pdf_output = io.BytesIO()
+    pdf.output(pdf_output)
+    st.download_button("📘 Download as .pdf", data=pdf_output.getvalue(), file_name="reddit_research_report.pdf", mime="application/pdf")
 
     tick()
