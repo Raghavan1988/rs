@@ -134,10 +134,10 @@ def generate_report(genre: str, threads: List[Dict], questions: List[str], timer
     prompt = (
         "You are an analyst assisting a mid career professional, an AI engineer currently an Engineering manager, honing their craft; advancing their career. "
         f"**{genre.title()}** genre. You have mined Reddit audience discussions. "
-        "First, give a one‑paragraph snapshot of overall audience sentiment for this genre. "
+        "First, give a one‑paragraph snapshot of overall audience sentiment for this subreddit. "
         "Then, answer each research question in its own subsection (≤2 paragraphs each), call out any FIRST principles that the reader should know "
         "adding citations in [Title](URL) form right after every key evidence point. "
-        "Finish with a bold **list of ACTIONABLE INSIGHTS**: 3 points for surviving in the AI era in the Bay Area, especially as a mid-career Engineering Manager at LinkedIn."
+        "Finish with a bold **list of ACTIONABLE INSIGHTS**: 3 points for surviving in the AI era in the Bay Area, especially as a mid-career Engineering Manager in Big tech industry."
     )
 
     msgs = [
