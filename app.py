@@ -137,7 +137,7 @@ def generate_report(genre: str, threads: List[Dict], questions: List[str], timer
         "First, give a one‑paragraph snapshot of overall audience sentiment for this subreddit. "
         "Then, answer each research question in its own subsection (≤2 paragraphs each), call out any FIRST principles that the reader should know "
         "adding citations in [Title](URL) form right after every key evidence point. "
-        "Finish with a bold **list of ACTIONABLE INSIGHTS**: 3 points for surviving in the AI era in the Bay Area, especially as a mid-career Engineering Manager in Big tech industry."
+        "Finish with a bold **list of ACTIONABLE INSIGHTS**: 3 points for surviving in the AI era, especially as a mid-career Engineering Manager in Big tech industry."
     )
 
     msgs = [
@@ -150,7 +150,7 @@ def generate_report(genre: str, threads: List[Dict], questions: List[str], timer
     return resp.choices[0].message.content
 
 # ── UI ──────────────────────────────────────────────────────────────────────
-st.title("🎬 Reddit Audience Intel for Scriptwriters - Agent that can mine")
+st.title("🎬 Subreddit Reddit Audience Intel  - Deep Research Agent that can mine subreddits and answer your questions")
 
 ticker = st.sidebar.empty()
 start_time = time.time()
@@ -231,5 +231,32 @@ if st.button("Run research 🚀"):
     pdf_output = io.BytesIO()
     pdf.output(pdf_output)
     st.download_button("📘 Download as .pdf", data=pdf_output.getvalue(), file_name="reddit_research_report.pdf", mime="application/pdf")
+
+    from fpdf import FPDF
+    from unidecode import unidecode
+    class PDF(FPDF):
+        def header(self):
+            self.set_font("Helvetica", "B", 12)
+            self.cell(0, 10, "Reddit Research Report", new_x="LMARGIN", new_y="NEXT", align="C")
+        def footer(self):
+            self.set_y(-15)
+            self.set_font("Helvetica", "I", 8)
+            self.cell(0, 10, f"Page {self.page_no()}", align="C")
+            
+            
+        def build_pdf(text: str) -> bytes:
+            """
+            Convert markdown/plain-text string to PDF and return **raw bytes**
+            ready for st.download_button.
+            """
+            pdf = PDF()
+            pdf.set_auto_page_break(auto=True, margin=15)
+            pdf.add_page()
+            pdf.set_font("Helvetica", size=11)
+            pdf.multi_cell(0, 7, unidecode(text))
+            # FPDF.output(dest="S") returns a **latin-1 encoded str** → convert to bytes
+            return pdf.output(dest="S").encode("latin-1")
+    pdf_bytes = build_pdf(report_md)
+    st.download_button("📘 Download as .pdf", data=pdf_bytes, file_name="reddit_research_report.pdf",mime="application/pdf",)
 
     tick()
