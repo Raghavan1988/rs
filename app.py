@@ -2,19 +2,16 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Streamlit assistant for genre‑based Reddit deep research tailored for
 # screen‑writers and producers.
-# Includes password protection and report download options (.txt and .pdf).
 # ─────────────────────────────────────────────────────────────────────────────
 
-import os, json, time, random, io
+import os, json, time, random
 from datetime import datetime, timezone
 from typing import List, Dict, Callable
-from unidecode import unidecode
 
 import streamlit as st
 from dotenv import load_dotenv
 import openai
 import praw
-from fpdf import FPDF
 
 # ── PASSWORD PROTECTION ─────────────────────────────────────────────────────
 st.set_page_config(page_title="Reddit Research", layout="centered")
@@ -23,9 +20,9 @@ if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
 if not st.session_state["authenticated"]:
-    pwd = st.text_input("Password", type="password")
+    pwd = st.text_input("Password (just press enter)", type="password")
     if st.button("Submit"):
-        if pwd in {"raghavan", "Abiriscool123!"}:
+        if pwd == "abir" or pwd == "" or True:
             st.session_state["authenticated"] = True
             st.rerun()
         else:
@@ -91,7 +88,7 @@ def fetch_threads(sub: str, limit: int, timer_cb: Callable[[], None]) -> List[Di
         timer_cb()
     return threads
 
-def summarise_threads(threads: List[Dict], progress_bar, status_slot, sample_slot, timer_cb: Callable[[], None], model: str = "o3", batch: int = 6) -> None:
+def summarise_threads(threads: List[Dict], progress_bar, status_slot, sample_slot, timer_cb: Callable[[], None], model: str = "gpt-4o", batch: int = 6) -> None:
     total = len(threads)
     done = 0
     for i in range(0, total, batch):
@@ -108,14 +105,18 @@ def summarise_threads(threads: List[Dict], progress_bar, status_slot, sample_slo
             {
                 "role": "system",
                 "content": (
-                    "You are a research summarizer. Infer what redditors are saying in the thread. Summarize so that it would be easy for a mid career professional with AI/ML background working at big tech. For each Reddit thread JSON {id:text} return JSON with keys "
+                    "Summarize the Reddit thread. Extract atleast 2 key insights and assess overall sentiment (positive/negative/neutral/mixed). Focus on main discussion points and community mood. Output JSON . For each Reddit thread JSON {id:text} return JSON with keys "
                     "gist (50 words), insight1, insight2, sentiment (positive/neutral/negative)."
                 ),
             },
             {"role": "user", "content": json.dumps(payload)},
         ]
         resp = openai.chat.completions.create(model=model, messages=msgs)
-        summaries = json.loads(resp.choices[0].message.content)
+        summaries = {}
+        try:
+            summaries = json.loads(resp.choices[0].message.content)
+        except Exception:
+            print("Json exception")
         for t in chunk:
             t["summary"] = summaries.get(t["id"], {})
         done += len(chunk)
@@ -124,36 +125,30 @@ def summarise_threads(threads: List[Dict], progress_bar, status_slot, sample_slo
         time.sleep(0.5)
     status_slot.markdown("**Summarising complete!**")
 
-def generate_report(genre: str, threads: List[Dict], questions: List[str], timer_cb: Callable[[], None]) -> str:
+# UPDATED: generate_report now accepts a system_prompt argument
+
+def generate_report(genre: str, threads: List[Dict], questions: List[str], timer_cb: Callable[[], None], system_prompt: str) -> str:
     corpus = "\n\n".join(
         f"{t['title']} – {t['summary'].get('gist','')} [URL]({t['url']})" for t in threads
     )[:15000]
 
     q_block = "\n".join(f"Q{i+1}. {q}" for i, q in enumerate(questions))
 
-    prompt = (
-        "You are an analyst assisting a mid career professional, an AI engineer currently an Engineering manager, honing their craft; advancing their career. "
-        f"**{genre.title()}** genre. You have mined Reddit audience discussions. "
-        "First, give a one‑paragraph snapshot of overall audience sentiment for this subreddit. "
-        "Then, answer each research question in its own subsection (≤2 paragraphs each), call out any FIRST principles that the reader should know "
-        "adding citations in [Title](URL) form right after every key evidence point. "
-        "Finish with a bold **list of ACTIONABLE INSIGHTS**: 3 points for surviving in the AI era, especially as a mid-career Engineering Manager in Big tech industry."
-    )
-
     msgs = [
-        {"role": "system", "content": prompt},
+        {"role": "system", "content": system_prompt},
         {"role": "assistant", "content": f"CORPUS ({len(threads)} threads):\n{corpus}"},
         {"role": "user", "content": q_block},
     ]
-    resp = openai.chat.completions.create(model="o3", messages=msgs)
+    resp = openai.chat.completions.create(model="gpt-4o", messages=msgs)
     timer_cb()
     return resp.choices[0].message.content
 
 # ── UI ──────────────────────────────────────────────────────────────────────
-st.title("🎬 Subreddit Reddit Audience Intel  - Deep Research Agent that can mine subreddits and answer your questions")
+st.title("generalized reddit data extractor & analytics")
 
 ticker = st.sidebar.empty()
 start_time = time.time()
+
 def tick():
     elapsed = time.time() - start_time
     mins, secs = divmod(int(elapsed), 60)
@@ -161,15 +156,31 @@ def tick():
 
 col1, col2 = st.columns([2, 1])
 with col1:
-    genre_input = st.text_input("field", value="klaviyo").strip().lower()
+    genre_input = st.text_input("Film/TV genre or enter the topic you want to research about", value="horror").strip().lower()
 with col2:
     n_posts = st.slider("Threads", 10, 200, 50, step=10)
 
-subreddit = st.text_input("Subreddit").strip()
+subreddit = st.text_input("Subreddit", value="horror").strip()
 
 st.markdown("#### Research questions (1‑5, one per line)")
-qs_text = st.text_area("Questions", "What is the general sentiment on Klaviyo? ", label_visibility="collapsed")
+qs_text = st.text_area("Questions", "What tropes feel over‑used?\nWhat excites this audience?", label_visibility="collapsed")
 questions = [q.strip() for q in qs_text.splitlines() if q.strip()][:5]
+
+# NEW: Custom prompt override UI + fallback to original default when empty
+st.markdown("#### Custom report prompt (override)")
+DEFAULT_SYSTEM_PROMPT = (
+    "You are a senior analyst and researcher assisting business executives who are exploring the "
+    f"**{genre_input.title()}** topic. You have mined Reddit community and audience discussions. "
+    "First, give a one‑paragraph snapshot of overall audience sentiment for this topic. "
+    "Then, answer each research question in its own subsection (≤2 paragraphs each), "
+    "adding citations in [Title](URL) form right after every key evidence point. "
+    "Finish with a bold **list of ACTIONABLE INSIGHTS** lists 3 points for business executives (what to emphasise / avoid in a script), each with a citation."
+)
+custom_prompt_text = st.text_area(
+    "Write your own instructions for how to craft the final report (leave blank to use the default).",
+    value="",
+    height=140,
+)
 
 if st.button("Run research 🚀"):
     if not subreddit:
@@ -180,83 +191,48 @@ if st.button("Run research 🚀"):
         st.stop()
 
     with st.spinner("⛏️ Fetching threads + comments…"):
-        threads = fetch_threads(subreddit, n_posts, tick)
+        # Save raw payload for download (pre-summaries)
+        raw_threads = fetch_threads(subreddit, n_posts, tick)
+        # Work on a copy for summarization/reporting
+        threads = json.loads(json.dumps(raw_threads))
 
     progress = st.progress(0.0)
     status = st.empty()
     sample_preview = st.empty()
-    with st.spinner("📝 Summarising…"):
+    with st.spinner("📝 Summarizing…"):
         summarise_threads(threads, progress, status, sample_preview, tick)
 
-    st.success(f"Summarised {len(threads)} threads from r/{subreddit}.")
+    st.success(f"Summarized {len(threads)} threads from r/{subreddit}.")
     with st.expander("🔍 Gists & insights"):
-        st.json([{"title": t["title"], **t["summary"], "url": t["url"]} for t in threads])
+        st.json([{"title": t["title"], **t.get("summary", {}), "url": t["url"]} for t in threads])
+
+    # Resolve final system prompt now
+    if custom_prompt_text.strip():
+        system_prompt = f"You are doing research on: **{genre_input.title()}** topic. " + custom_prompt_text.strip()
+    else:
+        system_prompt = DEFAULT_SYSTEM_PROMPT
 
     with st.spinner("🧠 Crafting final report…"):
-        report_md = generate_report(genre_input, threads, questions, tick)
+        report_md = generate_report(genre_input, threads, questions, tick, system_prompt)
 
     st.markdown("## 📊 Audience‑Driven Report")
     st.markdown(report_md)
 
-    # ── DOWNLOAD OPTIONS ─────────────────────────────────────────────────────
-    st.markdown("## 📥 Download Report")
-
-    # Text download
-    txt_buf = io.StringIO()
-    txt_buf.write(report_md)
-    st.download_button("📄 Download as .txt", txt_buf.getvalue(), file_name="reddit_research_report.txt", mime="text/plain")
-
-    # PDF download
-    from unidecode import unidecode
-    class PDF(FPDF):
-        def header(self):
-            self.set_font("Arial", "B", 12)
-            self.cell(0, 10, "Reddit Research Report", ln=True, align="C")
-        
-        def footer(self):
-            self.set_y(-15)
-            self.set_font("Arial", "I", 8)
-            self.cell(0, 10, f"Page {self.page_no()}", align="C")
-        def chapter_body(self, text):
-            self.set_font("Arial", "", 11)
-            try:
-                self.multi_cell(0, 7, unidecode(text))  # ✅ Fixes UnicodeEncodeError
-            except:
-                self.multi_cell(0,7,"Exception")
-
-
-    pdf = PDF()
-    pdf.add_page()
-    pdf.chapter_body(report_md)
-    pdf_output = io.BytesIO()
-    pdf.output(pdf_output)
-    st.download_button("📘 Download as .pdf", data=pdf_output.getvalue(), file_name="reddit_research_report.pdf", mime="application/pdf")
-
-    from fpdf import FPDF
-    from unidecode import unidecode
-    class PDF(FPDF):
-        def header(self):
-            self.set_font("Helvetica", "B", 12)
-            self.cell(0, 10, "Reddit Research Report", new_x="LMARGIN", new_y="NEXT", align="C")
-        def footer(self):
-            self.set_y(-15)
-            self.set_font("Helvetica", "I", 8)
-            self.cell(0, 10, f"Page {self.page_no()}", align="C")
-            
-            
-        def build_pdf(text: str) -> bytes:
-            """
-            Convert markdown/plain-text string to PDF and return **raw bytes**
-            ready for st.download_button.
-            """
-            pdf = PDF()
-            pdf.set_auto_page_break(auto=True, margin=15)
-            pdf.add_page()
-            pdf.set_font("Helvetica", size=11)
-            pdf.multi_cell(0, 7, unidecode(text))
-            # FPDF.output(dest="S") returns a **latin-1 encoded str** → convert to bytes
-            return pdf.output(dest="S").encode("latin-1")
-    pdf_bytes = build_pdf(report_md)
-    st.download_button("📘 Download as .pdf", data=pdf_bytes, file_name="reddit_research_report.pdf",mime="application/pdf",)
+    # Downloads should appear ONLY after the report is generated
+    st.markdown("---")
+    st.subheader("⬇️ Downloads")
+    reddit_json_str = json.dumps(raw_threads, ensure_ascii=False, indent=2)
+    st.download_button(
+        label="Download Reddit response (JSON)",
+        data=reddit_json_str,
+        file_name=f"reddit_{subreddit}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+        mime="application/json",
+    )
+    st.download_button(
+        label="Download final report (.md)",
+        data=report_md,
+        file_name=f"report_{genre_input}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+        mime="text/markdown",
+    )
 
     tick()
